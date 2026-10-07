@@ -43,7 +43,7 @@ exclude_dirs = [
     ".idea",         
     "build",         
     "venv",          
-    "cache"          
+    "cache"{mac_extra}
 ]
 
 # İndeks dosyasının konumu
@@ -58,6 +58,12 @@ limit = 10
 auto_scan = false
 "#,
                 home = toml_escape(&home_dir),
+                // macOS'ta ~/Library gizli değil ama yüz binlerce önbellek/sistem dosyası içerir
+                mac_extra = if cfg!(target_os = "macos") {
+                    ",\n    \"Library\""
+                } else {
+                    ""
+                },
                 index = toml_escape(&index_path),
             );
 

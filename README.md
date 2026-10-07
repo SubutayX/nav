@@ -21,10 +21,11 @@ Dizinlerinizi bir kez tarar, indeksi diske kaydeder. Sonrasında birkaç harf ya
 
 - ⚡ **Hızlı:** Tarama ve arama [rayon](https://github.com/rayon-rs/rayon) ile paralel çalışır. Arama metni önceden hazırlandığı için tuş başına disk erişimi yapılmaz.
 - 🔍 **Fuzzy arama:** `rpcli` yazmanız `Rust_Proje/cli_v1` için yeterli.
+- 🎨 **Eşleşme vurgusu:** Sorgunuzla eşleşen harfler sonuç listesinde renkli ve altı çizili gösterilir.
 - 🇹🇷 **Türkçe karakter desteği:** `calisma` yazınca `Çalışma` klasörü bulunur (`ğ ü ş ı ö ç` normalize edilir).
 - 📁 **İki mod:** Sadece klasörler veya tüm dosyalar (`TAB` ile geçiş). Dosya seçilirse bulunduğu klasöre gidilir.
 - 🙈 **Akıllı filtreleme:** Gizli dosyalar (`.git`, `.cache` …) ve `target`, `node_modules` gibi klasörler atlanır.
-- 🐧🪟 **Linux, macOS ve Windows** desteği.
+- 🐧🍎🪟 **Linux, macOS (Intel ve Apple Silicon) ve Windows** desteği. macOS'ta `~/Library` varsayılan olarak taranmaz.
 
 ## Kurulum
 

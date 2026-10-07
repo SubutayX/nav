@@ -22,7 +22,7 @@ struct Item {
 struct App {
     input: String,
     items: Vec<Item>,
-    results: Vec<(i64, usize)>, // (skor, items indeksi)
+    results: Vec<(i64, usize, Vec<usize>)>, // (skor, items indeksi, eşleşen karakter indeksleri)
     list_state: ListState,
     show_only_dirs: bool,
     needs_update: bool,
@@ -118,7 +118,8 @@ pub fn run_tui(
                 update_search(&mut app, &matcher, settings);
             }
             KeyCode::Enter => {
-                if let Some(&(_, idx)) = app.list_state.selected().and_then(|i| app.results.get(i))
+                if let Some(&(_, idx, _)) =
+                    app.list_state.selected().and_then(|i| app.results.get(i))
                 {
                     return Ok(Some(app.items[idx].entry.path.clone()));
                 }
@@ -187,8 +188,9 @@ fn draw(f: &mut Frame, app: &mut App, settings: &Settings) {
     let items: Vec<ListItem> = app
         .results
         .iter()
-        .map(|&(score, idx)| {
-            let entry = &app.items[idx].entry;
+        .map(|(score, idx, matched)| {
+            let item = &app.items[*idx];
+            let entry = &item.entry;
             let ext = std::path::Path::new(&entry.path).extension();
             let icon = if entry.is_dir {
                 "📁 "
@@ -200,14 +202,15 @@ fn draw(f: &mut Frame, app: &mut App, settings: &Settings) {
                 "📄 "
             };
 
-            ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     format!("[{:>3}] ", score),
                     Style::default().fg(Color::Yellow),
                 ),
                 Span::raw(icon),
-                Span::raw(entry.path.as_str()),
-            ]))
+            ];
+            spans.extend(highlight(&entry.path, &item.key, matched));
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
@@ -217,10 +220,10 @@ fn draw(f: &mut Frame, app: &mut App, settings: &Settings) {
                 .borders(Borders::ALL)
                 .title(format!(" En Yakın {} Sonuç ", settings.limit)),
         )
+        // fg verilmiyor: seçili satırda da eşleşen harflerin rengi görünsün
         .highlight_style(
             Style::default()
                 .bg(Color::Blue)
-                .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -237,6 +240,41 @@ fn normalize(text: &str) -> String {
         .replace(['ö', 'Ö'], "o")
         .replace(['ç', 'Ç'], "c")
         .to_lowercase()
+}
+
+/// Yolu, eşleşen karakterleri renkli olacak şekilde span'lere böler.
+/// İndeksler normalize edilmiş `key` üzerindendir; karakter sayısı tutmazsa renklendirme yapılmaz.
+fn highlight<'a>(path: &'a str, key: &str, matched: &[usize]) -> Vec<Span<'a>> {
+    if path.chars().count() != key.chars().count() {
+        return vec![Span::raw(path)];
+    }
+    let hit = Style::default()
+        .fg(Color::LightRed)
+        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+
+    let mut spans = Vec::new();
+    let mut start = 0; // mevcut parçanın byte başlangıcı
+    let mut in_hit = false;
+    for (ci, (bi, _)) in path.char_indices().enumerate() {
+        let is_hit = matched.binary_search(&ci).is_ok();
+        if is_hit != in_hit && bi > start {
+            let text = &path[start..bi];
+            spans.push(if in_hit {
+                Span::styled(text, hit)
+            } else {
+                Span::raw(text)
+            });
+            start = bi;
+        }
+        in_hit = is_hit;
+    }
+    let text = &path[start..];
+    spans.push(if in_hit {
+        Span::styled(text, hit)
+    } else {
+        Span::raw(text)
+    });
+    spans
 }
 
 fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
@@ -264,7 +302,17 @@ fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
 
     scored.par_sort_unstable_by_key(|&(s, _)| std::cmp::Reverse(s));
     scored.truncate(settings.limit);
-    app.results = scored;
+    // İndeksler sadece gösterilen birkaç sonuç için hesaplanır (pahalı, arama döngüsüne girmez)
+    app.results = scored
+        .into_iter()
+        .map(|(s, i)| {
+            let matched = matcher
+                .fuzzy_indices(&app.items[i].key, &query)
+                .map(|(_, m)| m)
+                .unwrap_or_default();
+            (s, i, matched)
+        })
+        .collect();
 
     app.list_state.select(if app.results.is_empty() {
         None
@@ -275,10 +323,20 @@ fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize;
+    use super::{highlight, normalize};
 
     #[test]
     fn normalize_turkish() {
         assert_eq!(normalize("İstanbul/Çalışma/ĞÜŞÖ"), "istanbul/calisma/guso");
+    }
+
+    #[test]
+    fn highlight_splits_matched_runs() {
+        let path = "/Çalışma/src";
+        let parts: Vec<String> = highlight(path, &normalize(path), &[1, 2, 9])
+            .iter()
+            .map(|s| s.content.to_string())
+            .collect();
+        assert_eq!(parts, ["/", "Ça", "lışma/", "s", "rc"]);
     }
 }
