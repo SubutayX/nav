@@ -14,15 +14,22 @@ use std::{error::Error, io, time::Duration};
 /// Aramalar bu süre boyunca yeni tuş gelmezse çalışır (debounce).
 const DEBOUNCE: Duration = Duration::from_millis(20);
 
+// Renk paleti (256 renk: çoğu terminalde aynı görünür)
+const ACCENT: Color = Color::Cyan;
+const MATCH: Color = Color::LightYellow;
+const DIM: Color = Color::Indexed(245);
+const SELECTED_BG: Color = Color::Indexed(237);
+
 struct Item {
     entry: Entry,
-    key: String, // önceden normalize edilmiş yol, her tuşta yeniden hesaplanmasın
+    display: String, // ev dizini "~" ile kısaltılmış yol
+    key: String,     // display'in normalize hali, her tuşta yeniden hesaplanmasın
 }
 
 struct App {
     input: String,
     items: Vec<Item>,
-    results: Vec<(i64, usize, Vec<usize>)>, // (skor, items indeksi, eşleşen karakter indeksleri)
+    results: Vec<(usize, Vec<usize>)>, // (items indeksi, eşleşen karakter indeksleri)
     list_state: ListState,
     show_only_dirs: bool,
     needs_update: bool,
@@ -42,13 +49,25 @@ pub fn run_tui(
     all_files: Vec<Entry>,
     settings: &Settings,
 ) -> Result<Option<String>, Box<dyn Error>> {
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned());
     let mut app = App {
         input: String::new(),
         items: all_files
             .into_par_iter()
-            .map(|entry| Item {
-                key: normalize(&entry.path),
-                entry,
+            .map(|entry| {
+                // Ev dizini aramaya dahil edilmez: her yolda olduğu için "help" gibi
+                // sorgular "/home/..." içindeki harflerle sahte eşleşme üretiyordu
+                let display = match &home {
+                    Some(h) if entry.path.starts_with(h.as_str()) => {
+                        format!("~{}", &entry.path[h.len()..])
+                    }
+                    _ => entry.path.clone(),
+                };
+                Item {
+                    key: normalize(&display),
+                    display,
+                    entry,
+                }
             })
             .collect(),
         results: vec![],
@@ -67,7 +86,7 @@ pub fn run_tui(
     let matcher = SkimMatcherV2::default();
 
     loop {
-        terminal.draw(|f| draw(f, &mut app, settings))?;
+        terminal.draw(|f| draw(f, &mut app))?;
 
         // Bekleyen arama varsa kısa, yoksa uzun bekle: boşta CPU yakmasın
         let timeout = if app.needs_update {
@@ -118,10 +137,8 @@ pub fn run_tui(
                 update_search(&mut app, &matcher, settings);
             }
             KeyCode::Enter => {
-                if let Some(&(_, idx, _)) =
-                    app.list_state.selected().and_then(|i| app.results.get(i))
-                {
-                    return Ok(Some(app.items[idx].entry.path.clone()));
+                if let Some((idx, _)) = app.list_state.selected().and_then(|i| app.results.get(i)) {
+                    return Ok(Some(app.items[*idx].entry.path.clone()));
                 }
             }
             _ => {}
@@ -129,105 +146,157 @@ pub fn run_tui(
     }
 }
 
-fn draw(f: &mut Frame, app: &mut App, settings: &Settings) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
-        .split(f.area());
+fn draw(f: &mut Frame, app: &mut App) {
+    let [input_area, list_area, help_area] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(f.area());
 
-    let mode_info = if app.show_only_dirs {
-        Span::styled(
-            " [MOD: Klasör] ",
-            Style::default()
-                .fg(Color::Magenta)
-                .add_modifier(Modifier::BOLD),
-        )
+    // --- Arama kutusu ---
+    let mode = if app.show_only_dirs {
+        "📁 Klasörler"
     } else {
-        Span::styled(
-            " [MOD: Hepsi] ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
+        "📄 Hepsi"
     };
+    let prompt = if app.input.is_empty() {
+        Line::from(vec![
+            Span::styled("❯ ", Style::new().fg(ACCENT).bold()),
+            Span::styled(
+                "Aramak için yazmaya başlayın…",
+                Style::new().fg(DIM).italic(),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("❯ ", Style::new().fg(ACCENT).bold()),
+            Span::styled(app.input.as_str(), Style::new().bold()),
+            Span::styled("▏", Style::new().fg(ACCENT)), // imleç
+        ])
+    };
+    let input_box = Paragraph::new(prompt).block(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(ACCENT))
+            .title(Line::from(" nav ").bold())
+            .title(Line::from(format!(" {mode} ")).right_aligned()),
+    );
+    f.render_widget(input_box, input_area);
 
-    let title = Line::from(vec![
-        Span::styled(
-            " Ara ",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-        mode_info,
-        Span::raw(" (Toplam "),
-        Span::styled(
-            app.items.len().to_string(),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" Girdi) - "),
-        Span::styled("[TAB: Mod Değiştir] ", Style::default().fg(Color::DarkGray)),
-        Span::styled("[ESC: Çık]", Style::default().fg(Color::DarkGray)),
-    ]);
-
-    let input_box = Paragraph::new(app.input.as_str())
-        .style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue))
-                .title(title),
-        );
-    f.render_widget(input_box, chunks[0]);
-
-    let items: Vec<ListItem> = app
+    // --- Sonuç listesi ---
+    let rows: Vec<ListItem> = app
         .results
         .iter()
-        .map(|(score, idx, matched)| {
-            let item = &app.items[*idx];
-            let entry = &item.entry;
-            let ext = std::path::Path::new(&entry.path).extension();
-            let icon = if entry.is_dir {
-                "📁 "
-            } else if ext.is_some_and(|e| e == "rs") {
-                "🦀 "
-            } else if ext.is_some_and(|e| e == "toml") {
-                "⚙️  "
-            } else {
-                "📄 "
-            };
-
-            let mut spans = vec![
-                Span::styled(
-                    format!("[{:>3}] ", score),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw(icon),
-            ];
-            spans.extend(highlight(&entry.path, &item.key, matched));
-            ListItem::new(Line::from(spans))
-        })
+        .map(|(idx, matched)| result_row(&app.items[*idx], matched))
         .collect();
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" En Yakın {} Sonuç ", settings.limit)),
-        )
-        // fg verilmiyor: seçili satırda da eşleşen harflerin rengi görünsün
-        .highlight_style(
-            Style::default()
-                .bg(Color::Blue)
-                .add_modifier(Modifier::BOLD),
-        );
+    let title = if app.input.is_empty() {
+        format!(" {} girdi indekslendi ", app.items.len())
+    } else {
+        format!(" {} sonuç ", app.results.len())
+    };
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(DIM))
+        .title(title);
 
-    f.render_stateful_widget(list, chunks[1], &mut app.list_state);
+    if rows.is_empty() && !app.input.is_empty() {
+        let empty = Paragraph::new(Line::from("Sonuç bulunamadı").fg(DIM).italic())
+            .alignment(Alignment::Center)
+            .block(block);
+        f.render_widget(empty, list_area);
+    } else {
+        let list = List::new(rows)
+            .block(block)
+            // fg verilmiyor: seçili satırda da renkler korunsun
+            .highlight_style(Style::new().bg(SELECTED_BG))
+            .highlight_symbol(Line::from("▌ ").fg(ACCENT))
+            .highlight_spacing(HighlightSpacing::Always);
+        f.render_stateful_widget(list, list_area, &mut app.list_state);
+    }
+
+    // --- Kısayol çubuğu ---
+    let key = |k: &'static str| Span::styled(k, Style::new().fg(ACCENT).bold());
+    let label = |l: &'static str| Span::styled(l, Style::new().fg(DIM));
+    let help = Line::from(vec![
+        key(" ↑↓"),
+        label(" gez   "),
+        key("⏎"),
+        label(" git   "),
+        key("TAB"),
+        label(" klasör/hepsi   "),
+        key("ESC"),
+        label(" çık"),
+    ]);
+    f.render_widget(help, help_area);
+}
+
+/// Bir sonuç satırı: ikon, kalın isim, ardından soluk ana dizin.
+/// Örn: `📁 help   ~/Downloads/opt/OpenVSP`
+fn result_row<'a>(item: &'a Item, matched: &[usize]) -> ListItem<'a> {
+    let display = item.display.as_str();
+    // Karakter sayısı tutmazsa (nadir Unicode durumları) indeksler güvenilmez, vurgulama yapma
+    let matched = if display.chars().count() == item.key.chars().count() {
+        matched
+    } else {
+        &[]
+    };
+
+    let name_start = display.rfind(['/', '\\']).map_or(0, |i| i + 1);
+    let (parent, name) = display.split_at(name_start);
+    let name = if name.is_empty() { parent } else { name }; // "/" veya "~" gibi kökler
+    let name_offset = display[..display.len() - name.len()].chars().count();
+    let parent = parent.trim_end_matches(['/', '\\']);
+
+    let ext = std::path::Path::new(name).extension();
+    let (icon, name_color) = if item.entry.is_dir {
+        ("📁 ", Color::LightBlue)
+    } else if ext.is_some_and(|e| e == "rs") {
+        ("🦀 ", Color::White)
+    } else if ext.is_some_and(|e| e == "toml") {
+        ("⚙️  ", Color::White)
+    } else {
+        ("📄 ", Color::White)
+    };
+
+    let mut spans = vec![Span::raw(icon)];
+    spans.extend(highlight(
+        name,
+        name_offset,
+        matched,
+        Style::new().fg(name_color).bold(),
+    ));
+    if !parent.is_empty() && name.len() != display.len() {
+        spans.push(Span::raw("   "));
+        spans.extend(highlight(parent, 0, matched, Style::new().fg(DIM)));
+    }
+    ListItem::new(Line::from(spans))
+}
+
+/// `text`i eşleşen ve eşleşmeyen parçalara böler. `offset`, `text`in tam yoldaki
+/// karakter başlangıcıdır (`matched` indeksleri tam yola göredir).
+fn highlight<'a>(text: &'a str, offset: usize, matched: &[usize], base: Style) -> Vec<Span<'a>> {
+    let hit = base.fg(MATCH).bold().underlined();
+    let mut spans = Vec::new();
+    let mut start = 0; // mevcut parçanın byte başlangıcı
+    let mut in_hit = false;
+    for (ci, (bi, _)) in text.char_indices().enumerate() {
+        let is_hit = matched.binary_search(&(offset + ci)).is_ok();
+        if is_hit != in_hit && bi > start {
+            spans.push(Span::styled(
+                &text[start..bi],
+                if in_hit { hit } else { base },
+            ));
+            start = bi;
+        }
+        in_hit = is_hit;
+    }
+    spans.push(Span::styled(
+        &text[start..],
+        if in_hit { hit } else { base },
+    ));
+    spans
 }
 
 /// Türkçe karakterleri ASCII karşılığına çevirip küçük harfe indirir.
@@ -240,41 +309,6 @@ fn normalize(text: &str) -> String {
         .replace(['ö', 'Ö'], "o")
         .replace(['ç', 'Ç'], "c")
         .to_lowercase()
-}
-
-/// Yolu, eşleşen karakterleri renkli olacak şekilde span'lere böler.
-/// İndeksler normalize edilmiş `key` üzerindendir; karakter sayısı tutmazsa renklendirme yapılmaz.
-fn highlight<'a>(path: &'a str, key: &str, matched: &[usize]) -> Vec<Span<'a>> {
-    if path.chars().count() != key.chars().count() {
-        return vec![Span::raw(path)];
-    }
-    let hit = Style::default()
-        .fg(Color::LightRed)
-        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
-
-    let mut spans = Vec::new();
-    let mut start = 0; // mevcut parçanın byte başlangıcı
-    let mut in_hit = false;
-    for (ci, (bi, _)) in path.char_indices().enumerate() {
-        let is_hit = matched.binary_search(&ci).is_ok();
-        if is_hit != in_hit && bi > start {
-            let text = &path[start..bi];
-            spans.push(if in_hit {
-                Span::styled(text, hit)
-            } else {
-                Span::raw(text)
-            });
-            start = bi;
-        }
-        in_hit = is_hit;
-    }
-    let text = &path[start..];
-    spans.push(if in_hit {
-        Span::styled(text, hit)
-    } else {
-        Span::raw(text)
-    });
-    spans
 }
 
 fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
@@ -300,17 +334,18 @@ fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
         })
         .collect();
 
-    scored.par_sort_unstable_by_key(|&(s, _)| std::cmp::Reverse(s));
+    // Skor eşitse kısa yol önce: "help" klasörü "help/images"tan önce gelsin
+    scored.par_sort_unstable_by_key(|&(s, i)| (std::cmp::Reverse(s), app.items[i].key.len()));
     scored.truncate(settings.limit);
     // İndeksler sadece gösterilen birkaç sonuç için hesaplanır (pahalı, arama döngüsüne girmez)
     app.results = scored
         .into_iter()
-        .map(|(s, i)| {
+        .map(|(_, i)| {
             let matched = matcher
                 .fuzzy_indices(&app.items[i].key, &query)
                 .map(|(_, m)| m)
                 .unwrap_or_default();
-            (s, i, matched)
+            (i, matched)
         })
         .collect();
 
@@ -324,6 +359,7 @@ fn update_search(app: &mut App, matcher: &SkimMatcherV2, settings: &Settings) {
 #[cfg(test)]
 mod tests {
     use super::{highlight, normalize};
+    use ratatui::style::Style;
 
     #[test]
     fn normalize_turkish() {
@@ -332,11 +368,11 @@ mod tests {
 
     #[test]
     fn highlight_splits_matched_runs() {
-        let path = "/Çalışma/src";
-        let parts: Vec<String> = highlight(path, &normalize(path), &[1, 2, 9])
+        // "src", tam yolda 9. karakterden başlıyor; 9 ve 10 eşleşmiş
+        let parts: Vec<String> = highlight("src", 9, &[1, 2, 9, 10], Style::new())
             .iter()
             .map(|s| s.content.to_string())
             .collect();
-        assert_eq!(parts, ["/", "Ça", "lışma/", "s", "rc"]);
+        assert_eq!(parts, ["sr", "c"]);
     }
 }

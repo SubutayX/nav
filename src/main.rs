@@ -2,12 +2,16 @@ use nav::{help, scanner, scanner::Entry, settings::Settings, ui};
 use std::{env, fs, path::Path};
 
 fn main() {
-    let app_settings = Settings::new().expect("Ayarlar yüklenemedi!");
     let args: Vec<String> = env::args().collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         help::print_help();
         return;
     }
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        eprintln!("nav {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    let app_settings = Settings::new().expect("Ayarlar yüklenemedi!");
     let force_scan = args.iter().any(|arg| arg == "--scan");
 
     let index_exists = Path::new(&app_settings.index_file).exists();

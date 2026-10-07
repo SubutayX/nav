@@ -7,14 +7,16 @@ Terminalde dosya ve klasörlere **fuzzy arama** ile ışık hızında atlamanız
 Dizinlerinizi bir kez tarar, indeksi diske kaydeder. Sonrasında birkaç harf yazıp `Enter` ile istediğiniz klasöre `cd` yaparsınız.
 
 ```
-┌ Ara  [MOD: Klasör]  (Toplam 184203 Girdi) - [TAB: Mod Değiştir] [ESC: Çık] ┐
-│rustcli                                                                     │
-└────────────────────────────────────────────────────────────────────────────┘
-┌ En Yakın 10 Sonuç ─────────────────────────────────────────────────────────┐
-│[143] 📁 /home/user/Projeler/Rust_Proje/cli_v1                              │
-│[121] 📁 /home/user/Projeler/Rust_Proje/cli_v1/src                          │
-│ ...                                                                        │
-└────────────────────────────────────────────────────────────────────────────┘
+╭ nav ─────────────────────────────────────────────── 📁 Klasörler ╮
+│❯ help▏                                                            │
+╰───────────────────────────────────────────────────────────────────╯
+╭ 4 sonuç ──────────────────────────────────────────────────────────╮
+│▌ 📁 help   ~/Downloads/opt/OpenVSP                                 │
+│  📁 help_vsp   ~/Downloads/opt/OpenVSP/python/openvsp/openvsp      │
+│  📁 helper_scripts   ~/Belgeler/Çalışma                            │
+│  📁 images   ~/Downloads/opt/OpenVSP/help                          │
+╰───────────────────────────────────────────────────────────────────╯
+ ↑↓ gez   ⏎ git   TAB klasör/hepsi   ESC çık
 ```
 
 ## Özellikler

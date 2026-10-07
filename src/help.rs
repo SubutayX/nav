@@ -1,25 +1,41 @@
+use std::io::IsTerminal;
+
+// stderr'e yazılır: `n` shell fonksiyonu stdout'u yakalayıp `cd` yapar,
+// yardım metni stdout'a gitseydi `n --help` metne cd yapmaya çalışırdı.
 pub fn print_help() {
-    println!(
-        r#"
-Navigator (nav) - Hızlı Dosya ve Klasör Navigasyon Aracı
+    let color = std::io::stderr().is_terminal();
+    let (b, c, d, r) = if color {
+        ("\x1b[1m", "\x1b[1;36m", "\x1b[2m", "\x1b[0m")
+    } else {
+        ("", "", "", "")
+    };
+    let version = env!("CARGO_PKG_VERSION");
 
-KULLANIM:
-    nav [SEÇENEKLER]
+    eprintln!(
+        "\
+{c}nav{r} {version} {d}— fuzzy arama ile hızlı dosya/klasör navigasyonu{r}
 
-SEÇENEKLER:
-    --scan          İndeks dosyasını siler ve tüm dizinleri yeniden tarar.
-    --help, -h      Bu yardım metnini gösterir.
+{b}KULLANIM{r}
+    n [SEÇENEK]          {d}shell fonksiyonu: seçilen klasöre cd yapar{r}
+    nav [SEÇENEK]        {d}seçilen yolu sadece ekrana yazar{r}
 
-BİLGİ:
-    - Hiçbir seçenek girilmezse, mevcut indeksi yükler ve TUI ekranını açar.
-    - TUI içinde 'TAB' tuşu ile sadece klasörler veya tüm dosyalar arasında geçiş yapabilirsiniz.
-    - Yukarı/Aşağı ok tuşları ile sonuçlar arasında gezinirsiniz.
-    - Enter tuşu ile seçilen konuma terminalde 'cd' yaparsınız (shell fonksiyonu gerekir, README'ye bakın).
-    - ESC veya Ctrl+C ile çıkarsınız.
+{b}SEÇENEKLER{r}
+    {c}--scan{r}               Dizinleri yeniden tarar ve indeksi günceller
+    {c}-h{r}, {c}--help{r}           Bu yardım metnini gösterir
+    {c}-V{r}, {c}--version{r}        Sürümü gösterir
 
-KONFİGÜRASYON:
-    Ayarlar: ~/.nav/Settings.toml
-    İndeks:  ~/.nav/.nav_index.json
-"#
+{b}KISAYOLLAR{r}
+    {c}yazmak{r}               Fuzzy arama ({d}\"calisma\" → Çalışma{r})
+    {c}↑ ↓{r}                  Sonuçlar arasında gezin
+    {c}Enter{r}                Seçilen klasöre git {d}(dosyaysa bulunduğu klasöre){r}
+    {c}Tab{r}                  Sadece klasörler / tüm dosyalar
+    {c}Esc{r}, {c}Ctrl+C{r}          Çık
+
+{b}DOSYALAR{r}
+    ~/.nav/Settings.toml    Ayarlar {d}(taranacak dizinler, hariç tutulanlar…){r}
+    ~/.nav/.nav_index.json  İndeks
+
+{d}Yeni klasörler görünmüyorsa: n --scan
+Daha fazlası: https://github.com/SubutayX/nav{r}"
     );
 }
